@@ -1,4 +1,5 @@
 mod commands;
+mod config;
 use clap::Parser;
 
 fn validate_image_path(s: &str) -> Result<String, String> {
@@ -34,9 +35,37 @@ pub struct Args {
 
     #[arg(short, long, value_name = "PATH", value_parser = validate_image_path)]
     pub image: Option<String>,
+
+    #[arg(short = 'n', long = "count", value_name = "N")]
+    pub count: Option<usize>,
+
+    #[arg(long = "set-default", value_name = "N")]
+    pub set_default: Option<usize>,
+
+    #[arg(
+        long = "threshold",
+        short = 't',
+        value_name = "F",
+        default_value_t = 10.0
+    )]
+    pub threshold: f32,
 }
 
 fn main() {
     let args = Args::parse();
-    commands::handle(args);
+
+    if let Some(size) = args.set_default {
+        let mut cfg = config::load();
+        cfg.palette_size = size;
+        config::save(&cfg);
+        return;
+    }
+
+    if let Some(path) = args.image {
+        let cfg = config::load();
+        let count = args.count.unwrap_or(cfg.palette_size);
+        commands::handle(path, count, args.threshold);
+    } else {
+        println!("Extract colors from images and generate palettes.");
+    }
 }
