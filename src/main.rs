@@ -1,22 +1,24 @@
 mod commands;
 use clap::Parser;
-use std::path::Path;
 
 fn validate_image_path(s: &str) -> Result<String, String> {
-    let path = Path::new(s);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase());
-    match ext.as_deref() {
-        Some("png") | Some("jpg") | Some("jpeg") | Some("bmp") | Some("webp") | Some("tiff")
-        | Some("tif") => Ok(s.to_string()),
-        Some(_) => Err(format!(
-            "Unsupported image format: '{}'. Supported: png, jpg, jpeg, webp, tiff",
-            path.extension().and_then(|e| e.to_str()).unwrap_or("")
-        )),
-        None => Err("File must have an image extension (e.g., .png, .jpg)".to_string()),
+    if !std::path::Path::new(s).exists() {
+        return Err(format!("File not found: '{}'", s));
     }
+
+    let kind = infer::get_from_path(s)
+        .map_err(|e| format!("Cannot read file: {e}"))?
+        .ok_or_else(|| format!("'{}' is not a recognized file type", s))?;
+
+    if kind.matcher_type() != infer::MatcherType::Image {
+        return Err(format!(
+            "'{}' is not an image (detected: {})",
+            s,
+            kind.mime_type()
+        ));
+    }
+
+    Ok(s.to_string())
 }
 
 #[derive(Parser, Debug)]
