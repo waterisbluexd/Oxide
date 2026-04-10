@@ -49,6 +49,15 @@ pub struct Args {
         default_value_t = 10.0
     )]
     pub threshold: f32,
+
+    #[arg(short = 'q', long = "quiet")]
+    pub quiet: bool,
+
+    #[arg(long = "time")]
+    pub time: bool,
+
+    #[arg(long = "saturate", value_name = "0.0-1.0")]
+    pub saturate: Option<f32>,
 }
 
 fn main() {
@@ -64,7 +73,14 @@ fn main() {
     if let Some(path) = args.image {
         let cfg = config::load();
         let count = args.count.unwrap_or(cfg.palette_size);
-        commands::handle(path, count, args.threshold);
+        commands::handle(
+            path,
+            count,
+            args.threshold,
+            args.quiet,
+            args.time,
+            args.saturate,
+        );
     } else {
         println!("Extract colors from images and generate palettes.");
     }
