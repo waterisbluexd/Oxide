@@ -10,6 +10,5 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 kmeans_colors = { version = "0.7", features = ["palette_color"] }
 palette = "0.7"
 serde = { version = "1.0", features = ["derive"] }
-sha2 = "0.10"
 toml = "0.8"
 dirs = "5.0"
