@@ -7,6 +7,7 @@ pub fn handle(
     quiet: bool,
     time: bool,
     sat: Option<f32>,
+    reload: bool,
 ) {
-    image::run(path, count, threshold, quiet, time, sat);
+    image::run(path, count, threshold, quiet, time, sat, reload);
 }

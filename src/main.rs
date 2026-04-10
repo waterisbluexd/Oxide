@@ -1,3 +1,4 @@
+mod cache;
 mod commands;
 mod config;
 use clap::Parser;
@@ -33,15 +34,19 @@ pub struct Args {
     #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
     pub _version: (),
 
+    /// Path to the image to extract colors from
     #[arg(short, long, value_name = "PATH", value_parser = validate_image_path)]
     pub image: Option<String>,
 
+    /// Number of colors to extract (overrides set-default for this run)
     #[arg(short = 'n', long = "count", value_name = "N")]
     pub count: Option<usize>,
 
+    /// Set the default palette size saved to config
     #[arg(long = "set-default", value_name = "N")]
     pub set_default: Option<usize>,
 
+    /// Minimum perceptual distance between colors (higher = fewer similar colors)
     #[arg(
         long = "threshold",
         short = 't',
@@ -50,14 +55,21 @@ pub struct Args {
     )]
     pub threshold: f32,
 
+    /// Show hex values alongside swatches
     #[arg(short = 'q', long = "quiet")]
     pub quiet: bool,
 
+    /// Show how long extraction took
     #[arg(long = "time")]
     pub time: bool,
 
+    /// Override saturation of extracted colors (0.0–1.0)
     #[arg(long = "saturate", value_name = "0.0-1.0")]
     pub saturate: Option<f32>,
+
+    /// Bypass cache and re-extract colors from the image
+    #[arg(long = "reload", short = 'r')]
+    pub reload: bool,
 }
 
 fn main() {
@@ -80,8 +92,11 @@ fn main() {
             args.quiet,
             args.time,
             args.saturate,
+            args.reload,
         );
     } else {
         println!("Extract colors from images and generate palettes.");
+        println!("Usage: oxide --image <PATH> [OPTIONS]");
+        println!("       oxide --help");
     }
 }

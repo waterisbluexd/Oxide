@@ -1,6 +1,7 @@
+use crate::cache;
 use image::imageops::FilterType;
 use kmeans_colors::get_kmeans;
-use palette::{cast::from_component_slice, FromColor, Hsl, IntoColor, Lab, Srgb};
+use palette::{FromColor, Hsl, IntoColor, Lab, Srgb, cast::from_component_slice};
 use std::io::Cursor;
 
 fn darken(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
@@ -79,9 +80,9 @@ fn adjust(colors: &mut Vec<(u8, u8, u8)>, light: bool, sat: Option<f32>) {
         colors[mid] = blend(c7.0, c7.1, c7.2, 0xEE, 0xEE, 0xEE);
         let c7_blended = colors[mid];
         colors[mid + 1] = darken(c7_blended.0, c7_blended.1, c7_blended.2, 0.30);
-        let last = len - 1;
-        let fg = colors[last];
-        colors[last] = blend(fg.0, fg.1, fg.2, 0xEE, 0xEE, 0xEE);
+        let last_idx = len - 1;
+        let fg = colors[last_idx];
+        colors[last_idx] = blend(fg.0, fg.1, fg.2, 0xEE, 0xEE, 0xEE);
 
         if let Some(s) = sat {
             for c in colors.iter_mut() {
@@ -98,6 +99,7 @@ pub fn run(
     show_hex: bool,
     show_time: bool,
     sat: Option<f32>,
+    reload: bool,
 ) {
     let start = std::time::Instant::now();
 
@@ -106,6 +108,33 @@ pub fn run(
         .unwrap()
         .to_string_lossy();
 
+    // --- Cache check ---
+    if reload {
+        cache::invalidate(&path);
+        println!("[i] cache: Invalidated cache for {}.", filename);
+    } else if let Some(cached) = cache::load(&path) {
+        println!("[i] cache: Using cached palette for {}.", filename);
+        let hex_colors: Vec<(u8, u8, u8)> = cached
+            .colors
+            .iter()
+            .map(|s| {
+                let s = s.trim_start_matches('#');
+                let r = u8::from_str_radix(&s[0..2], 16).unwrap_or(0);
+                let g = u8::from_str_radix(&s[2..4], 16).unwrap_or(0);
+                let b = u8::from_str_radix(&s[4..6], 16).unwrap_or(0);
+                (r, g, b)
+            })
+            .collect();
+
+        print_palette(&hex_colors, show_hex);
+
+        if show_time {
+            println!("[i] Done in {:.2?}", start.elapsed());
+        }
+        return;
+    }
+
+    // --- Extract from image ---
     println!("[i] image: Using image {}.", filename);
 
     let bytes = std::fs::read(&path).unwrap_or_else(|e| {
@@ -179,27 +208,39 @@ pub fn run(
 
     adjust(&mut deduped, false, sat);
 
-    let mid = deduped.len() / 2;
-    let dark = &deduped[..mid];
-    let light_row = &deduped[mid..];
+    // --- Save to cache (CSS only, dynamic count) ---
+    let hex_strings: Vec<String> = deduped
+        .iter()
+        .map(|(r, g, b)| format!("#{:02X}{:02X}{:02X}", r, g, b))
+        .collect();
+    cache::save(&path, &hex_strings);
+
+    // --- Print palette ---
+    print_palette(&deduped, show_hex);
+
+    if show_time {
+        println!("[i] Done in {:.2?}", start.elapsed());
+    }
+}
+
+fn print_palette(colors: &[(u8, u8, u8)], show_hex: bool) {
+    let mid = colors.len() / 2;
+    let dark = &colors[..mid];
+    let light_row = &colors[mid..];
 
     let print_row = |row: &[(u8, u8, u8)]| {
         for (r, g, b) in row {
             print!("\x1b[48;2;{r};{g};{b}m    \x1b[0m");
         }
+        println!();
         if show_hex {
             for (r, g, b) in row {
                 print!("#{:02X}{:02X}{:02X} ", r, g, b);
             }
             println!();
         }
-        println!();
     };
 
     print_row(dark);
     print_row(light_row);
-
-    if show_time {
-        println!("[i] Done in {:.2?}", start.elapsed());
-    }
 }
