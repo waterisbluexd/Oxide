@@ -97,28 +97,31 @@ fn main() {
                             None
                         }
                     })
+                    .take(count)
                     .collect();
-
-                let colors = if colors.len() > count {
-                    colors[..count].to_vec()
-                } else {
-                    colors
-                };
 
                 commands::display_palette(colors, args.quiet, args.time);
                 return;
             }
         }
 
-        commands::handle(
-            path,
+        let colors = commands::handle(
+            path.clone(),
             count,
             args.threshold,
             args.quiet,
             args.time,
             args.saturate,
-            true,
         );
+
+        let should_save = match cache::load(&path) {
+            Some(cached) => colors.len() > cached.colors.len(),
+            None => true,
+        };
+
+        if should_save {
+            cache::save(&path, &colors);
+        }
     } else {
         println!("Extract colors from images and generate palettes.");
     }

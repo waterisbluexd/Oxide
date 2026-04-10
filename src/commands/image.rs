@@ -3,8 +3,6 @@ use kmeans_colors::get_kmeans;
 use palette::{cast::from_component_slice, FromColor, Hsl, IntoColor, Lab, Srgb};
 use std::io::Cursor;
 
-use crate::cache;
-
 fn darken(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
     (
         (r as f32 * (1.0 - amount)) as u8,
@@ -104,7 +102,6 @@ pub fn run(
     show_hex: bool,
     show_time: bool,
     sat: Option<f32>,
-    save_cache: bool,
 ) -> Vec<String> {
     let start = std::time::Instant::now();
 
@@ -185,11 +182,6 @@ pub fn run(
     });
 
     adjust(&mut deduped, false, sat);
-
-    if save_cache {
-        let hex_colors: Vec<String> = deduped.iter().map(|(r, g, b)| to_hex(*r, *g, *b)).collect();
-        cache::save(&path, &hex_colors);
-    }
 
     let mid = deduped.len() / 2;
     let dark = &deduped[..mid];

@@ -7,9 +7,8 @@ pub fn handle(
     quiet: bool,
     time: bool,
     sat: Option<f32>,
-    save_cache: bool,
 ) -> Vec<String> {
-    image::run(path, count, threshold, quiet, time, sat, save_cache)
+    image::run(path, count, threshold, quiet, time, sat)
 }
 
 pub fn display_palette(colors: Vec<(u8, u8, u8)>, show_hex: bool, show_time: bool) {
