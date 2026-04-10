@@ -1,3 +1,4 @@
+mod cache;
 mod commands;
 mod config;
 use clap::Parser;
@@ -58,6 +59,9 @@ pub struct Args {
 
     #[arg(long = "saturate", value_name = "0.0-1.0")]
     pub saturate: Option<f32>,
+
+    #[arg(short = 'r', long = "refresh")]
+    pub refresh: bool,
 }
 
 fn main() {
@@ -73,14 +77,51 @@ fn main() {
     if let Some(path) = args.image {
         let cfg = config::load();
         let count = args.count.unwrap_or(cfg.palette_size);
-        commands::handle(
-            path,
+
+        if args.refresh {
+            cache::invalidate(&path);
+        }
+
+        if let Some(cached) = cache::load(&path) {
+            if cached.colors.len() >= count {
+                let colors: Vec<(u8, u8, u8)> = cached
+                    .colors
+                    .iter()
+                    .filter_map(|hex| {
+                        if hex.len() == 7 && hex.starts_with('#') {
+                            let r = u8::from_str_radix(&hex[1..3], 16).ok()?;
+                            let g = u8::from_str_radix(&hex[3..5], 16).ok()?;
+                            let b = u8::from_str_radix(&hex[5..7], 16).ok()?;
+                            Some((r, g, b))
+                        } else {
+                            None
+                        }
+                    })
+                    .take(count)
+                    .collect();
+
+                commands::display_palette(colors, args.quiet, args.time);
+                return;
+            }
+        }
+
+        let colors = commands::handle(
+            path.clone(),
             count,
             args.threshold,
             args.quiet,
             args.time,
             args.saturate,
         );
+
+        let should_save = match cache::load(&path) {
+            Some(cached) => colors.len() > cached.colors.len(),
+            None => true,
+        };
+
+        if should_save {
+            cache::save(&path, &colors);
+        }
     } else {
         println!("Extract colors from images and generate palettes.");
     }

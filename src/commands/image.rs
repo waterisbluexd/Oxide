@@ -1,6 +1,6 @@
 use image::imageops::FilterType;
 use kmeans_colors::get_kmeans;
-use palette::{FromColor, Hsl, IntoColor, Lab, Srgb, cast::from_component_slice};
+use palette::{cast::from_component_slice, FromColor, Hsl, IntoColor, Lab, Srgb};
 use std::io::Cursor;
 
 fn darken(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
@@ -91,6 +91,10 @@ fn adjust(colors: &mut Vec<(u8, u8, u8)>, light: bool, sat: Option<f32>) {
     }
 }
 
+fn to_hex(r: u8, g: u8, b: u8) -> String {
+    format!("#{:02X}{:02X}{:02X}", r, g, b)
+}
+
 pub fn run(
     path: String,
     count: usize,
@@ -98,7 +102,7 @@ pub fn run(
     show_hex: bool,
     show_time: bool,
     sat: Option<f32>,
-) {
+) -> Vec<String> {
     let start = std::time::Instant::now();
 
     let filename = std::path::Path::new(&path)
@@ -202,4 +206,6 @@ pub fn run(
     if show_time {
         println!("[i] Done in {:.2?}", start.elapsed());
     }
+
+    deduped.iter().map(|(r, g, b)| to_hex(*r, *g, *b)).collect()
 }
