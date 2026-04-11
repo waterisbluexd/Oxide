@@ -1,7 +1,7 @@
 use crate::cache;
 use image::imageops::FilterType;
 use kmeans_colors::get_kmeans;
-use palette::{FromColor, Hsl, IntoColor, Lab, Srgb, cast::from_component_slice};
+use palette::{cast::from_component_slice, FromColor, Hsl, IntoColor, Lab, Srgb};
 use std::io::Cursor;
 
 fn darken(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
@@ -108,7 +108,6 @@ pub fn run(
         .unwrap()
         .to_string_lossy();
 
-    // --- Cache check ---
     if reload {
         cache::invalidate(&path);
         println!("[i] cache: Invalidated cache for {}.", filename);
@@ -134,7 +133,6 @@ pub fn run(
         return;
     }
 
-    // --- Extract from image ---
     println!("[i] image: Using image {}.", filename);
 
     let bytes = std::fs::read(&path).unwrap_or_else(|e| {
@@ -208,14 +206,12 @@ pub fn run(
 
     adjust(&mut deduped, false, sat);
 
-    // --- Save to cache (CSS only, dynamic count) ---
     let hex_strings: Vec<String> = deduped
         .iter()
         .map(|(r, g, b)| format!("#{:02X}{:02X}{:02X}", r, g, b))
         .collect();
     cache::save(&path, &hex_strings);
 
-    // --- Print palette ---
     print_palette(&deduped, show_hex);
 
     if show_time {
