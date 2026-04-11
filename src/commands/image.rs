@@ -1,7 +1,6 @@
 use crate::cache;
+use color_quant::NeuQuant;
 use image::imageops::FilterType;
-use kmeans_colors::get_kmeans;
-use palette::{cast::from_component_slice, FromColor, Hsl, IntoColor, Lab, Srgb};
 use std::io::Cursor;
 
 fn darken(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
@@ -29,14 +28,65 @@ fn blend(r1: u8, g1: u8, b1: u8, r2: u8, g2: u8, b2: u8) -> (u8, u8, u8) {
 }
 
 fn saturate(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
-    let srgb = Srgb::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
-    let mut hsl: Hsl = Hsl::from_color(srgb);
-    hsl.saturation = amount;
-    let out: Srgb = Srgb::from_color(hsl);
+    let rf = r as f32 / 255.0;
+    let gf = g as f32 / 255.0;
+    let bf = b as f32 / 255.0;
+
+    let max = rf.max(gf).max(bf);
+    let min = rf.min(gf).min(bf);
+    let l = (max + min) / 2.0;
+
+    if (max - min).abs() < f32::EPSILON {
+        return (r, g, b);
+    }
+
+    let d = max - min;
+    let _s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
+    let h = if max == rf {
+        (gf - bf) / d + if gf < bf { 6.0 } else { 0.0 }
+    } else if max == gf {
+        (bf - rf) / d + 2.0
+    } else {
+        (rf - gf) / d + 4.0
+    };
+    let h = h / 6.0;
+
+    let s = amount.clamp(0.0, 1.0);
+
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+
+    let hue_to_rgb = |p: f32, q: f32, mut t: f32| -> f32 {
+        if t < 0.0 {
+            t += 1.0;
+        }
+        if t > 1.0 {
+            t -= 1.0;
+        }
+        if t < 1.0 / 6.0 {
+            return p + (q - p) * 6.0 * t;
+        }
+        if t < 1.0 / 2.0 {
+            return q;
+        }
+        if t < 2.0 / 3.0 {
+            return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+        }
+        p
+    };
+
     (
-        (out.red * 255.0).clamp(0.0, 255.0) as u8,
-        (out.green * 255.0).clamp(0.0, 255.0) as u8,
-        (out.blue * 255.0).clamp(0.0, 255.0) as u8,
+        (hue_to_rgb(p, q, h + 1.0 / 3.0) * 255.0).clamp(0.0, 255.0) as u8,
+        (hue_to_rgb(p, q, h) * 255.0).clamp(0.0, 255.0) as u8,
+        (hue_to_rgb(p, q, h - 1.0 / 3.0) * 255.0).clamp(0.0, 255.0) as u8,
     )
 }
 
@@ -49,6 +99,39 @@ fn color_distance(r1: u8, g1: u8, b1: u8, r2: u8, g2: u8, b2: u8) -> f32 {
     let dg = g1 as f32 - g2 as f32;
     let db = b1 as f32 - b2 as f32;
     (dr * dr + dg * dg + db * db).sqrt()
+}
+
+fn maxmin_select(colors: &[(u8, u8, u8)], count: usize) -> Vec<(u8, u8, u8)> {
+    if colors.len() <= count {
+        return colors.to_vec();
+    }
+
+    let mut selected = vec![colors[0]];
+
+    while selected.len() < count {
+        let next = colors
+            .iter()
+            .filter(|c| !selected.contains(c))
+            .max_by(|a, b| {
+                let da = selected
+                    .iter()
+                    .map(|s| color_distance(a.0, a.1, a.2, s.0, s.1, s.2))
+                    .fold(f32::MAX, f32::min);
+                let db = selected
+                    .iter()
+                    .map(|s| color_distance(b.0, b.1, b.2, s.0, s.1, s.2))
+                    .fold(f32::MAX, f32::min);
+                da.partial_cmp(&db).unwrap()
+            });
+
+        if let Some(&c) = next {
+            selected.push(c);
+        } else {
+            break;
+        }
+    }
+
+    selected
 }
 
 fn adjust(colors: &mut Vec<(u8, u8, u8)>, light: bool, sat: Option<f32>) {
@@ -71,22 +154,21 @@ fn adjust(colors: &mut Vec<(u8, u8, u8)>, light: bool, sat: Option<f32>) {
         colors[len / 2] = darkened;
         colors[len - 1] = first;
     } else {
-        let bg = colors[0];
-        if bg.0 != 0 {
-            colors[0] = darken(bg.0, bg.1, bg.2, 0.40);
-        }
+        colors[0] = darken(colors[0].0, colors[0].1, colors[0].2, 0.40);
         let mid = len / 2 - 1;
-        let c7 = colors[mid];
-        colors[mid] = blend(c7.0, c7.1, c7.2, 0xEE, 0xEE, 0xEE);
-        let c7_blended = colors[mid];
-        colors[mid + 1] = darken(c7_blended.0, c7_blended.1, c7_blended.2, 0.30);
-        let last_idx = len - 1;
-        let fg = colors[last_idx];
-        colors[last_idx] = blend(fg.0, fg.1, fg.2, 0xEE, 0xEE, 0xEE);
-
+        colors[mid] = lighten(colors[0].0, colors[0].1, colors[0].2, 0.75);
+        let last = len - 1;
+        colors[last] = blend(
+            colors[last].0,
+            colors[last].1,
+            colors[last].2,
+            0xEE,
+            0xEE,
+            0xEE,
+        );
         if let Some(s) = sat {
-            for c in colors.iter_mut() {
-                *c = saturate(c.0, c.1, c.2, s);
+            for i in 1..mid {
+                colors[i] = saturate(colors[i].0, colors[i].1, colors[i].2, s);
             }
         }
     }
@@ -95,7 +177,7 @@ fn adjust(colors: &mut Vec<(u8, u8, u8)>, light: bool, sat: Option<f32>) {
 pub fn run(
     path: String,
     count: usize,
-    threshold: f32,
+    _threshold: f32,
     show_hex: bool,
     show_time: bool,
     sat: Option<f32>,
@@ -154,65 +236,49 @@ pub fn run(
 
     let (w, h) = (img.width(), img.height());
     let img = img.resize(w / 4, h / 4, FilterType::Nearest);
-    let rgb_img = img.to_rgb8();
-    let pixels = rgb_img.as_raw();
 
-    let lab: Vec<Lab> = from_component_slice::<Srgb<u8>>(pixels)
-        .iter()
-        .map(|x| x.into_linear().into_color())
-        .collect();
+    let rgba_img = img.to_rgba8();
+    let pixels = rgba_img.as_raw();
 
-    let k = count + 8;
-    let result = get_kmeans(k, 10, 1.0, false, &lab, 42);
+    let nq = NeuQuant::new(10, 256, pixels);
+    let color_map = nq.color_map_rgba();
 
-    let colors: Vec<(u8, u8, u8)> = result
-        .centroids
-        .iter()
-        .map(|&lab| {
-            let srgb: Srgb = Srgb::from_linear(Lab::into_color(lab));
-            let srgb8: Srgb<u8> = srgb.into_format();
-            (srgb8.red, srgb8.green, srgb8.blue)
-        })
-        .collect();
+    let mut all_colors: Vec<(u8, u8, u8)> =
+        color_map.chunks(4).map(|c| (c[0], c[1], c[2])).collect();
 
-    let mut deduped: Vec<(u8, u8, u8)> = Vec::new();
-    for color in &colors {
-        let too_close = deduped.iter().any(|kept| {
-            color_distance(color.0, color.1, color.2, kept.0, kept.1, kept.2) < threshold
-        });
-        if !too_close {
-            deduped.push(*color);
-        }
-    }
-
-    if deduped.len() < count {
-        for color in &colors {
-            if deduped.len() >= count {
-                break;
-            }
-            if !deduped.contains(color) {
-                deduped.push(*color);
-            }
-        }
-    }
-
-    deduped.truncate(count);
-
-    deduped.sort_by(|a, b| {
+    all_colors.sort_by(|a, b| {
         luminance(a.0, a.1, a.2)
             .partial_cmp(&luminance(b.0, b.1, b.2))
             .unwrap()
     });
 
-    adjust(&mut deduped, false, sat);
+    let mut deduped: Vec<(u8, u8, u8)> = Vec::new();
+    for color in &all_colors {
+        let too_close = deduped
+            .iter()
+            .any(|kept| color_distance(color.0, color.1, color.2, kept.0, kept.1, kept.2) < 10.0);
+        if !too_close {
+            deduped.push(*color);
+        }
+    }
 
-    let hex_strings: Vec<String> = deduped
+    let mut selected = maxmin_select(&deduped, count);
+
+    selected.sort_by(|a, b| {
+        luminance(a.0, a.1, a.2)
+            .partial_cmp(&luminance(b.0, b.1, b.2))
+            .unwrap()
+    });
+
+    adjust(&mut selected, false, sat);
+
+    let hex_strings: Vec<String> = selected
         .iter()
         .map(|(r, g, b)| format!("#{:02X}{:02X}{:02X}", r, g, b))
         .collect();
     cache::save(&path, &hex_strings);
 
-    print_palette(&deduped, show_hex);
+    print_palette(&selected, show_hex);
 
     if show_time {
         println!("[i] Done in {:.2?}", start.elapsed());
